@@ -1,14 +1,27 @@
-name: Deploy Cloudflare Worker  # 名前を変えておくとActions画面で見分けやすいです
-on: 
+name: Deploy Cloudflare Worker
+
+on:
   push:
     branches:
       - main
+
 jobs:
   deploy-to-cloudflare:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install
+
       - name: Deploy Worker
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          # wrangler.tomlがルートにない場合は以下を指定
+          # workingDirectory: 'path/to/project'
