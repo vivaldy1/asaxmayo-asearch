@@ -1,0 +1,8 @@
+name = "loan-memo-api"
+main = "src/index.js"
+compatibility_date = "2024-04-01"
+
+[[d1_databases]]
+binding = "yt_data"
+database_name = "yt_data"
+database_id = "fbce3881-d0b1-4edd-a31b-47be43345456"
