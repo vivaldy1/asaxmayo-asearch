@@ -5,7 +5,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>朔栖まよ アーカイブ検索</title>
-  <link rel="icon" type="image/svg+xml" href="https://vivaldy1.github.io/archive-search/favicon.svg">
+  <link rel="icon" type="image/svg+xml" href="https://vivaldy1.github.io/asaxmayo-asearch/favicon.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link
     href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300&family=Noto+Sans+JP:wght@300;400&display=swap"
@@ -531,7 +531,7 @@
     .results-header {
       display: flex;
       justify-content: space-between;
-      align-items: baseline;
+      align-items: flex-end;
       padding: 0 0 16px;
       border-bottom: 1px solid var(--border)
     }
@@ -740,7 +740,8 @@
 
     .truncation-note {
       font-size: 11px;
-      color: #d4956a;
+      color: var(--text);
+      margin-top: auto;
       letter-spacing: .03em;
       margin-left: 8px;
       vertical-align: middle
@@ -1139,6 +1140,52 @@
         transform: rotate(360deg)
       }
     }
+
+    /* ===== 件数内訳テーブル ===== */
+    .count-table {
+      border-collapse: collapse;
+      table-layout: fixed;
+      width: 400px;
+      font-family: 'Cormorant Garamond', serif;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .count-table th,
+    .count-table td {
+      padding: 6px 0;
+      width: 80px;
+      text-align: center;
+      white-space: nowrap;
+      border-right: 1px solid var(--border);
+      background: transparent !important;
+      cursor: default;
+    }
+    .count-table th:last-child,
+    .count-table td:last-child {
+      border-right: none;
+    }
+    .count-table thead tr {
+      border-bottom: 1px solid var(--border);
+      background: var(--bg2) !important;
+    }
+    .count-table th {
+      font-size: 11px;
+      font-weight: 400;
+      letter-spacing: .08em;
+      color: var(--text-dim);
+      cursor: default;
+      user-select: none;
+    }
+    .count-table td {
+      font-size: 25px;
+      line-height: 1;
+      padding-top: 8px;
+      padding-bottom: 8px;
+    }
+    .count-table tbody tr:hover {
+      background: transparent !important;
+    }
   </style>
 </head>
 
@@ -1224,6 +1271,21 @@
         <input id="modKeywordInput" type="text" placeholder="キーワード絞り込み（省略可）" autocomplete="off">
       </div>
 
+      <div class="date-filter" style="margin-top:12px">
+        <label>期間：</label>
+        <button class="date-preset mod-date-preset active" data-months="0">すべて</button>
+        <button class="date-preset mod-date-preset" data-months="1">1ヵ月</button>
+        <button class="date-preset mod-date-preset" data-months="3">3ヵ月</button>
+        <button class="date-preset mod-date-preset" data-months="12">1年</button>
+        <button class="date-preset mod-date-preset" data-months="-1">1年より前</button>
+        <div class="date-inputs">
+          <span style="font-size:12px;color:var(--text-dim)">From</span>
+          <input class="date-input" type="date" id="modDateFrom">
+          <span style="font-size:12px;color:var(--text-dim)">To</span>
+          <input class="date-input" type="date" id="modDateTo">
+        </div>
+      </div>
+
       <button id="modSearchBtn" class="mod-search-btn" onclick="doModSearch()">Search</button>
 
       <div class="search-footer">
@@ -1285,13 +1347,10 @@
         body: JSON.stringify({ action, params }),
       });
       const t1 = performance.now();
-      console.log(`[d1Action] fetch完了: ${(t1 - t0).toFixed(0)}ms | action="${action}"`);
       if (!res.ok) throw new Error(`Workers error: ${res.status} ${res.statusText}`);
       const text = await res.text();
       const t2 = performance.now();
-      console.log(`[d1Action] ボディ受信: ${(t2 - t1).toFixed(0)}ms | ${(text.length / 1024).toFixed(1)}KB`);
       const data = JSON.parse(text);
-      console.log(`[d1Action] 合計: ${(performance.now() - t0).toFixed(0)}ms | ${Array.isArray(data) ? data.length : JSON.stringify(data).length + 'chars'}` );
       if (data && data.error) throw new Error(`D1 error: ${data.error}`);
       return data;
     }
@@ -1340,6 +1399,7 @@
 
     // ===== 期間フィルタ (1年より前を追加) =====
     let dateFromVal = '', dateToVal = '';
+    let modDateFromVal = '', modDateToVal = '';
 
     document.querySelectorAll('.date-preset').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -1373,6 +1433,38 @@
     document.getElementById('dateTo').addEventListener('change', e => {
       dateToVal = e.target.value;
       document.querySelectorAll('.date-preset').forEach(b => b.classList.remove('active'));
+    });
+
+    // ===== ユーザー検索タブ: 期間フィルタ =====
+    document.querySelectorAll('.mod-date-preset').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.mod-date-preset').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const months = parseInt(btn.dataset.months);
+        const to = new Date(), from = new Date();
+        if (months === 0) {
+          modDateFromVal = ''; modDateToVal = '';
+        } else if (months === -1) {
+          to.setFullYear(to.getFullYear() - 1);
+          modDateFromVal = '';
+          modDateToVal = to.toISOString().split('T')[0];
+        } else {
+          from.setMonth(from.getMonth() - months);
+          modDateFromVal = from.toISOString().split('T')[0];
+          modDateToVal = to.toISOString().split('T')[0];
+        }
+        document.getElementById('modDateFrom').value = modDateFromVal;
+        document.getElementById('modDateTo').value = modDateToVal;
+      });
+    });
+
+    document.getElementById('modDateFrom').addEventListener('change', e => {
+      modDateFromVal = e.target.value;
+      document.querySelectorAll('.mod-date-preset').forEach(b => b.classList.remove('active'));
+    });
+    document.getElementById('modDateTo').addEventListener('change', e => {
+      modDateToVal = e.target.value;
+      document.querySelectorAll('.mod-date-preset').forEach(b => b.classList.remove('active'));
     });
 
     // ===== 日付順ソート取得用 =====
@@ -1448,6 +1540,43 @@
       document.getElementById('modSelectedLabel').textContent = selectedModUser ? `選択中: ${selectedModUser}` : '';
     }
 
+    // ===== かな正規化ユーティリティ =====
+    // 半角カタカナ→全角カタカナ（濁点・半濁点の合成も処理）
+    function hankakuToZenkaku(str) {
+      // 濁点付き
+      str = str.replace(/([ｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾊﾋﾌﾍﾎｳ])ﾞ/g, (_, c) => {
+        const b = 'ｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾊﾋﾌﾍﾎｳ';
+        const v = 'ガギグゲゴザジズゼゾダヂヅデドバビブベボヴ';
+        const i = b.indexOf(c); return i >= 0 ? v[i] : c + '゛';
+      });
+      // 半濁点付き
+      str = str.replace(/([ﾊﾋﾌﾍﾎ])ﾟ/g, (_, c) => {
+        const b = 'ﾊﾋﾌﾍﾎ'; const v = 'パピプペポ';
+        const i = b.indexOf(c); return i >= 0 ? v[i] : c + '゜';
+      });
+      // 残りの半角カタカナ→全角
+      const hw = 'ｦｧｨｩｪｫｬｭｮｯｰｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜﾝ';
+      const fw = 'ヲァィゥェォャュョッーアイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワン';
+      return str.replace(/[ｦ-ﾝ]/g, c => { const i = hw.indexOf(c); return i >= 0 ? fw[i] : c; });
+    }
+    function hiraganaToKatakana(str) {
+      return str.replace(/[ぁ-ゖ]/g, c => String.fromCharCode(c.charCodeAt(0) + 0x60));
+    }
+    function katakanaToHiragana(str) {
+      return str.replace(/[ァ-ヶ]/g, c => String.fromCharCode(c.charCodeAt(0) - 0x60));
+    }
+    // キーワード1語 → かな表記バリアント配列（重複除去）
+    function expandKana(kw) {
+      const full = hankakuToZenkaku(kw);
+      const kata = hiraganaToKatakana(full);
+      const hira = katakanaToHiragana(full);
+      return [...new Set([kw, full, kata, hira].filter(Boolean))];
+    }
+    // スペース区切りの入力文字列 → keywordGroups（バリアント展開済み）
+    function buildKeywordGroups(raw) {
+      return raw.replace(/　/g, ' ').split(/\s+/).filter(k => k.length > 0).map(expandKana);
+    }
+
     // ===== D1 検索共通 =====
     function getSearchMode() {
       const el = document.getElementById('searchMode');
@@ -1457,10 +1586,10 @@
     async function searchSubtitles(kw) {
       const order = getSortOrder();
       const mode = getSearchMode();
-      const keywords = kw.replace(/　/g, ' ').split(/\s+/).filter(k => k.length > 0);
+      const keywordGroups = buildKeywordGroups(kw);
 
       const rows = await d1Action('search_subtitles', {
-        keywords, mode,
+        keywordGroups, mode,
         dateFrom: dateFromVal || undefined,
         dateTo: dateToVal || undefined,
         order, limit: LIMIT,
@@ -1474,10 +1603,10 @@
     async function searchComments(kw) {
       const order = getSortOrder();
       const mode = getSearchMode();
-      const keywords = kw.replace(/　/g, ' ').split(/\s+/).filter(k => k.length > 0);
+      const keywordGroups = buildKeywordGroups(kw);
 
       const rows = await d1Action('search_comments', {
-        keywords, mode,
+        keywordGroups, mode,
         dateFrom: dateFromVal || undefined,
         dateTo: dateToVal || undefined,
         order, limit: LIMIT,
@@ -1488,15 +1617,17 @@
       return arr;
     }
 
-    async function searchLiveChat(kw, userId) {
+    async function searchLiveChat(kw, userId, dateFrom, dateTo) {
       const order = getSortOrder();
       const mode = getSearchMode();
-      const keywords = kw ? kw.replace(/　/g, ' ').split(/\s+/).filter(k => k.length > 0) : [];
+      const keywordGroups = kw ? buildKeywordGroups(kw) : [];
+      const fromVal = dateFrom !== undefined ? dateFrom : dateFromVal;
+      const toVal   = dateTo   !== undefined ? dateTo   : dateToVal;
 
       const rows = await d1Action('search_live_chats', {
-        keywords, mode,
-        dateFrom: dateFromVal || undefined,
-        dateTo: dateToVal || undefined,
+        keywordGroups, mode,
+        dateFrom: fromVal || undefined,
+        dateTo: toVal || undefined,
         order, limit: LIMIT,
         userId: userId || undefined,
       });
@@ -1518,10 +1649,6 @@
       document.getElementById('results').innerHTML = '';
 
       const startTime = performance.now();
-      const timer = setInterval(() => {
-        timeEl.textContent = `⏱ ${((performance.now() - startTime) / 1000).toFixed(1)}秒...`;
-      }, 100);
-
       try {
         const queries = [];
         if (currentTarget === 'all' || currentTarget === 'subtitles') queries.push(searchSubtitles(keyword));
@@ -1537,9 +1664,7 @@
           }
         });
 
-        clearInterval(timer);
         const finalTime = `⏱ ${((performance.now() - startTime) / 1000).toFixed(2)}秒`;
-        timeEl.textContent = ''; // フッターからクリア
 
         const order = getSortOrder();
         results.sort((a, b) => order === 'DESC' ? safeDateValue(b.date) - safeDateValue(a.date) : safeDateValue(a.date) - safeDateValue(b.date));
@@ -1547,8 +1672,6 @@
         updateUrlParams();
         renderResults(results, keyword, '', finalTime, truncatedSources);
       } catch (err) {
-        clearInterval(timer);
-        timeEl.textContent = `⏱ ${((performance.now() - startTime) / 1000).toFixed(2)}秒`;
         setStatus(`エラー: ${err.message}`);
       } finally {
         document.getElementById('searchBtn').disabled = false;
@@ -1570,21 +1693,13 @@
       document.getElementById('results').innerHTML = '';
 
       const startTime = performance.now();
-      const timer = setInterval(() => {
-        timeEl.textContent = `⏱ ${((performance.now() - startTime) / 1000).toFixed(1)}秒...`;
-      }, 100);
-
       try {
-        const chatArr = await searchLiveChat(keyword, userId);
-        clearInterval(timer);
+        const chatArr = await searchLiveChat(keyword, userId, modDateFromVal, modDateToVal);
         const finalTime = `⏱ ${((performance.now() - startTime) / 1000).toFixed(2)}秒`;
-        timeEl.textContent = ''; // フッターからクリア
         const truncatedSources = chatArr.truncated ? ['chat'] : [];
         updateUrlParams();
         renderResults(chatArr, keyword, userId, finalTime, truncatedSources);
       } catch (err) {
-        clearInterval(timer);
-        timeEl.textContent = `⏱ ${((performance.now() - startTime) / 1000).toFixed(2)}秒`;
         setStatus(`エラー: ${err.message}`);
       } finally {
         document.getElementById('modSearchBtn').disabled = false;
@@ -1610,6 +1725,8 @@
         if (user) p.set('user', user.replace(/^@/, ''));
         const kw = document.getElementById('modKeywordInput').value.trim();
         if (kw) p.set('q', kw);
+        if (modDateFromVal) p.set('from', modDateFromVal);
+        if (modDateToVal)   p.set('to',   modDateToVal);
         p.set('sort', document.getElementById('sortOrderMod').value);
       }
       return p;
@@ -1701,6 +1818,11 @@
         }
         const q = p.get('q') || '';
         if (q) document.getElementById('modKeywordInput').value = q;
+        const from = p.get('from') || '';
+        const to   = p.get('to')   || '';
+        if (from) { modDateFromVal = from; document.getElementById('modDateFrom').value = from; }
+        if (to)   { modDateToVal   = to;   document.getElementById('modDateTo').value   = to;   }
+        if (from || to) document.querySelectorAll('.mod-date-preset').forEach(b => b.classList.remove('active'));
         const sort = p.get('sort');
         if (sort) document.getElementById('sortOrderMod').value = sort;
         if (user || q) {
@@ -1747,21 +1869,43 @@
         metaHtml += (metaHtml ? ' <span style="margin:0 6px;opacity:0.3">/</span> ' : '') + `<span style="color:var(--gold-dim);font-family:monospace;">${timeStr}</span>`;
       }
 
-      // 上限超過表示
-      const sourceLabels = { subtitles: '字幕', comments: 'コメント', chat: 'チャット' };
-      let truncHtml = '';
-      if (truncatedSources.length > 0) {
-        const names = truncatedSources.map(s => sourceLabels[s] || s).join('・');
-        truncHtml = `<span class="truncation-note" title="表示件数が上限に達したため、一部が省略されています">⚠ ${names}は${LIMIT}件以降は表示されません</span>`;
-      }
+      // ソース別件数
+      const isUserSearch = !!userId;
+      const cntComments  = results.filter(r => r.source === 'Comments').length;
+      const cntChat      = results.filter(r => r.source === 'Live Chat').length;
+      const cntSubtitles = results.filter(r => r.source === 'Subtitles').length;
+      const cntTotal     = results.length;
+
+      const truncMark = s => truncatedSources.includes(s)
+        ? `<span class="truncation-note" title="表示件数が上限に達したため、一部が省略されています"> ⚠</span>` : '';
+      const truncAnyHtml = truncatedSources.length > 0
+        ? `<span class="truncation-note" title="表示件数が上限に達したため、一部が省略されています">⚠ ${LIMIT}件以降は表示されません</span>`
+        : '';
+
+      const dash = `<span style="color:var(--text-dim)">－</span>`;
+      const commentCell  = isUserSearch ? dash : `${cntComments.toLocaleString()}${truncMark('comments')}`;
+      const subtitleCell = isUserSearch ? dash : `${cntSubtitles.toLocaleString()}${truncMark('subtitles')}`;
 
       container.innerHTML = `
       <div class="results-header">
-        <div style="display:flex;align-items:baseline;flex-wrap:wrap;gap:6px;">
-          <div class="results-count"><span>${results.length}</span> 件ヒット
-            <small style="font-size:.5em;color:var(--text-dim)">&nbsp;${groups.length} 動画</small>
-          </div>
-          ${truncHtml}
+        <div style="display:flex;align-items:center;flex-wrap:wrap;gap:12px;">
+          <table class="count-table">
+            <thead><tr>
+              <th style="color:#8dcf8d">コメント</th>
+              <th style="color:#d4956a">チャット</th>
+              <th style="color:#7bb8e8">字幕</th>
+              <th style="color:var(--gold)">合計</th>
+              <th style="color:var(--text-dim)">動画</th>
+            </tr></thead>
+            <tbody><tr>
+              <td style="color:#8dcf8d">${commentCell}</td>
+              <td style="color:#d4956a">${cntChat.toLocaleString()}${truncMark('chat')}</td>
+              <td style="color:#7bb8e8">${subtitleCell}</td>
+              <td style="color:var(--gold)">${cntTotal.toLocaleString()}</td>
+              <td style="color:var(--text-dim)">${groups.length}</td>
+            </tr></tbody>
+          </table>
+          ${truncAnyHtml}
         </div>
         <div class="results-meta" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
           ${metaHtml}
@@ -1814,18 +1958,15 @@
       summary.innerHTML = '';
 
       const t0 = performance.now();
-      console.group('[loadAdminData] 動画一覧 初回ロード開始');
 
       try {
         const t1 = performance.now();
         const counts = await d1Action('count_all');
-        console.log(`[loadAdminData] ① count_all 完了: ${(performance.now() - t1).toFixed(0)}ms`);
 
         const totalVideos    = counts.videos    || 0;
         const totalComments  = counts.comments  || 0;
         const totalChat      = counts.live_chats || 0;
         const totalSubtitles = counts.subtitles || 0;
-        console.log(`[loadAdminData]   動画総数: ${totalVideos}`);
 
         const t2 = performance.now();
         summary.innerHTML = `
@@ -1833,17 +1974,13 @@
         <div class="summary-card"><div class="summary-card-label">コメント</div><div class="summary-card-value" style="color:#8dcf8d">${totalComments.toLocaleString()}</div></div>
         <div class="summary-card"><div class="summary-card-label">LiveChat</div><div class="summary-card-value" style="color:#d4956a">${totalChat.toLocaleString()}</div></div>
         <div class="summary-card"><div class="summary-card-label">字幕</div><div class="summary-card-value" style="color:#7bb8e8">${totalSubtitles.toLocaleString()}</div></div>`;
-        console.log(`[loadAdminData] ② サマリーDOM描画: ${(performance.now() - t2).toFixed(0)}ms`);
 
         adminLoaded = true;
         await fetchAndRenderAdminTable();
 
-        console.log(`[loadAdminData] 全体合計: ${(performance.now() - t0).toFixed(0)}ms`);
       } catch (e) {
-        console.error('[loadAdminData] エラー:', e);
         content.innerHTML = `<div style="text-align:center;padding:60px;color:#e88">読み込みに失敗: ${escHtml(e.message)}</div>`;
       } finally {
-        console.groupEnd();
       }
     }
 
@@ -1861,18 +1998,14 @@
       const content = document.getElementById('adminContent');
       content.innerHTML = '<div style="text-align:center;padding:60px;color:var(--text-dim)"><span class="spinner"></span>読み込み中...</div>';
 
-      console.group('[fetchAndRenderAdminTable]');
       const t0 = performance.now();
       try {
         const rows = await d1Action('get_video_list');
-        console.log(`[fetchAndRenderAdminTable] クエリ完了: ${(performance.now() - t0).toFixed(0)}ms | ${rows.length}件`);
         adminDataCache = rows;
         renderAdminTable();
       } catch (e) {
-        console.error('[fetchAndRenderAdminTable] エラー:', e);
         content.innerHTML = `<div style="text-align:center;padding:60px;color:#e88">読み込みに失敗: ${escHtml(e.message)}</div>`;
       } finally {
-        console.groupEnd();
       }
     }
 
