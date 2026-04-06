@@ -1103,6 +1103,19 @@
       text-decoration: none;
     }
 
+    .comment-ts-link {
+      color: var(--gold-dim);
+      text-decoration: none;
+      font-family: monospace;
+      font-size: 0.95em;
+      transition: color .15s;
+    }
+
+    .comment-ts-link:hover {
+      color: var(--gold);
+      text-decoration: underline;
+    }
+
     .modal-item-author {
       color: var(--text-dim);
       font-weight: 400;
@@ -1680,7 +1693,7 @@
         dateTo: dateToVal || undefined,
         order, limit: LIMIT,
       });
-      const arr = rows.map(r => ({ source: 'Comments', date: r.date, videoId: r.video_id, title: r.title, timestamp: '', role: '', user: r.author, text: r.comment }));
+      const arr = rows.map(r => ({ source: 'Comments', date: r.date, videoId: r.video_id, title: r.title, timestamp: '', role: '', user: r.author, text: r.comment, commentDate: r.comment_date || '' }));
       arr.truncated = rows.length >= LIMIT;
       arr.source = 'comments';
       return arr;
@@ -2002,19 +2015,34 @@
         group.hits.forEach(item => {
           const ts = normalizeTimestamp(item.timestamp);
           const tsUrl = ts ? `${href}&t=${toSeconds(ts)}s` : null;
+
+          // コメントは comment_date と動画 published_at の差分で位置を計算
+          let commentTsUrl = null;
+          if (!ts && item.source === 'Comments' && item.commentDate) {
+            const sec = commentDateToVideoSeconds(item.commentDate, item.date);
+            if (sec >= 0) commentTsUrl = `${href}&t=${sec}s`;
+          }
+
           const tsHtml = tsUrl
             ? `<div class="hit-ts"><a href="${tsUrl}" target="_blank">⏱${escHtml(ts)}</a></div>`
-            : `<div class="hit-ts"></div>`;
+            : commentTsUrl
+              ? `<div class="hit-ts"><a href="${commentTsUrl}" target="_blank" title="コメント投稿時刻から推定">⏱</a></div>`
+              : `<div class="hit-ts"></div>`;
           const row = document.createElement('div');
           row.className = 'hit-row';
 
           // 字幕・チャットはソースバッジをクリックでモーダル表示＋スクロール
           const isScrollable = item.source === 'Subtitles' || item.source === 'Live Chat';
           const modalType = item.source === 'Subtitles' ? 'subtitles' : 'livechat';
+          // コメントはテキスト中のタイムスタンプをリンク化
+          const isComment = item.source === 'Comments';
+          const textHtml = isComment
+            ? linkifyTimestamps(highlight(item.text, keyword), group.videoId)
+            : highlight(item.text, keyword);
 
           row.innerHTML = `${tsHtml}
           <div class="hit-source ${sourceClass(item)}${isScrollable ? ' clickable' : ''}" ${isScrollable ? 'title="一覧を開いてこの行までジャンプ"' : ''}>${sourceLabel(item)}</div>
-          <div class="hit-text">${highlight(item.text, keyword)}</div>`;
+          <div class="hit-text">${textHtml}</div>`;
 
           if (isScrollable) {
             row.querySelector('.hit-source').addEventListener('click', () => {
@@ -2203,6 +2231,36 @@
     }
     function escRegex(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
+    // コメントテキスト中の "H:MM:SS" / "MM:SS" パターンをYouTubeジャンプリンクに変換
+    // 引数はエスケープ済みHTML文字列、videoId は対象動画
+    function linkifyTimestamps(html, videoId) {
+      if (!videoId) return html;
+      // \d{1,3}:\d{2}(:\d{2})? の形式にマッチ（前後が数字でない位置に限定）
+      return html.replace(/(?<!\d)(\d{1,3}:\d{2}(?::\d{2})?)(?!\d)/g, (match) => {
+        const parts = match.split(':').map(Number);
+        let sec = 0;
+        if (parts.length === 2) sec = parts[0] * 60 + parts[1];
+        if (parts.length === 3) sec = parts[0] * 3600 + parts[1] * 60 + parts[2];
+        const url = `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&t=${sec}s`;
+        return `<a href="${url}" target="_blank" class="comment-ts-link">${match}</a>`;
+      });
+    }
+
+    // comment_date（コメント投稿時刻）と published_at（配信開始時刻）の差分を秒で返す
+    // 時刻情報がない・マイナスになる場合は -1 を返す
+    function commentDateToVideoSeconds(commentDate, publishedAt) {
+      if (!commentDate || !publishedAt) return -1;
+      // YYYYMMDD（時刻なし）は計算不可
+      if (/^\d{8}$/.test(String(publishedAt).trim())) return -1;
+      try {
+        const pubTime = new Date(String(publishedAt).trim().replace(' ', 'T')).getTime();
+        const comTime = new Date(String(commentDate).trim().replace(' ', 'T')).getTime();
+        if (isNaN(pubTime) || isNaN(comTime)) return -1;
+        const sec = Math.round((comTime - pubTime) / 1000);
+        return sec >= 0 ? sec : -1;
+      } catch (e) { return -1; }
+    }
+
     // ===== 詳細モーダル制御 =====
     // scrollTarget: { timestamp, text } — 指定された行までスクロールする（省略可）
     async function showDetailModal(videoId, videoTitle, type, scrollTarget = null) {
@@ -2240,7 +2298,7 @@
 
         const html = rows.map((r, idx) => {
           // ── タイムスタンプ: livechat / subtitles はクリックで動画ジャンプ ──
-          // 0:00（動画先頭）も含めてリンク化する
+          // コメントは comment_date と published_at の差分で推定
           let tsHtml = '';
           if (r.timestamp) {
             const normalTs = normalizeTimestamp(r.timestamp);
@@ -2250,6 +2308,18 @@
               tsHtml = `<a href="${tsUrl}" target="_blank" class="modal-item-ts-link">⏱${escHtml(normalTs)}</a>`;
             } else if (normalTs) {
               tsHtml = `<span class="modal-item-ts">${escHtml(normalTs)}</span>`;
+            }
+          } else if (type === 'comments' && r.comment_date) {
+            const sec = commentDateToVideoSeconds(r.comment_date, r.published_at);
+            if (sec >= 0) {
+              const hh = Math.floor(sec / 3600);
+              const mm = Math.floor((sec % 3600) / 60);
+              const ss = sec % 60;
+              const label = hh > 0
+                ? `${hh}:${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}`
+                : `${mm}:${String(ss).padStart(2,'0')}`;
+              const tsUrl = `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&t=${sec}s`;
+              tsHtml = `<a href="${tsUrl}" target="_blank" class="modal-item-ts-link" title="コメント投稿時刻から推定">⏱${label}</a>`;
             }
           }
 
@@ -2274,7 +2344,7 @@
           return `
           <div class="modal-item" data-idx="${idx}">
             <div class="modal-item-meta">${tsHtml}${authorHtml}</div>
-            <div class="modal-item-text"${textStyle ? ` style="${textStyle}"` : ''}>${escHtml(r.text)}</div>
+            <div class="modal-item-text"${textStyle ? ` style="${textStyle}"` : ''}>${type === 'comments' ? linkifyTimestamps(escHtml(r.text), videoId) : escHtml(r.text)}</div>
           </div>`;
         }).join('');
 
