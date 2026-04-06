@@ -1073,6 +1073,19 @@
       font-family: monospace;
     }
 
+    .modal-item-ts-link {
+      color: var(--gold-dim);
+      font-family: monospace;
+      text-decoration: none;
+      transition: color .15s;
+      cursor: pointer;
+    }
+
+    .modal-item-ts-link:hover {
+      color: var(--gold);
+      text-decoration: none;
+    }
+
     .modal-item-author {
       color: var(--text-dim);
       font-weight: 400;
@@ -1202,7 +1215,8 @@
   <!-- ===== ページ切り替えタブ ===== -->
   <nav class="page-nav">
     <button class="page-tab active" data-page="search">🔍 キーワード検索</button>
-    <button class="page-tab" data-page="mod">👤 ユーザー検索</button>
+    <!-- ユーザー検索タブ: 非表示中（style="display:none"を消すと復活） -->
+    <button class="page-tab" data-page="mod" style="display:none">👤 ユーザー検索</button>
     <button class="page-tab" data-page="admin">📋 動画一覧</button>
   </nav>
 
@@ -2188,18 +2202,46 @@
           return;
         }
 
-        const html = rows.map(r => {
-          const ts = r.timestamp ? `<span class="modal-item-ts">${escHtml(r.timestamp)}</span>` : '';
-          const author = r.author ? `<span class="modal-item-author">${escHtml(r.author)}</span>` : '';
+        // @有無どちらの表記でもオーナー判定できるようにする
+        const isOwnerAuthor = (author) => !!author && author.replace(/^@/, '').toLowerCase() === 'asaxmayo';
 
-          // スーパーチャット・モデレーター判定があればここですることも可能ですが、シンプルに出力
-          let extraClass = '';
-          if (r.type === 'superchat') extraClass = 'style="color:#ff6464; font-weight:400"';
+        const html = rows.map(r => {
+          // ── タイムスタンプ: livechat / subtitles はクリックで動画ジャンプ ──
+          // 0:00（動画先頭）も含めてリンク化する
+          let tsHtml = '';
+          if (r.timestamp) {
+            const normalTs = normalizeTimestamp(r.timestamp);
+            if (normalTs && (type === 'livechat' || type === 'subtitles')) {
+              const sec = toSeconds(normalTs);
+              const tsUrl = `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&t=${sec}s`;
+              tsHtml = `<a href="${tsUrl}" target="_blank" class="modal-item-ts-link">⏱${escHtml(normalTs)}</a>`;
+            } else if (normalTs) {
+              tsHtml = `<span class="modal-item-ts">${escHtml(normalTs)}</span>`;
+            }
+          }
+
+          // ── 著者: livechat / comments はオーナー以外プライバシー非表示 ──
+          let authorHtml = '';
+          if (r.author) {
+            if (type === 'livechat' || type === 'comments') {
+              if (isOwnerAuthor(r.author)) {
+                authorHtml = `<span class="modal-item-author" style="color:#b464ff;font-weight:400">${escHtml(r.author)}</span>`;
+              }
+              // それ以外は非表示（プライバシー保護）
+            } else {
+              authorHtml = `<span class="modal-item-author">${escHtml(r.author)}</span>`;
+            }
+          }
+
+          // ── テキスト色: スーパーチャット=赤、オーナー=紫 ──
+          let textStyle = '';
+          if (r.type === 'superchat') textStyle = 'color:#ff6464; font-weight:400';
+          else if (isOwnerAuthor(r.author)) textStyle = 'color:#b464ff';
 
           return `
           <div class="modal-item">
-            <div class="modal-item-meta">${ts}${author}</div>
-            <div class="modal-item-text" ${extraClass}>${escHtml(r.text)}</div>
+            <div class="modal-item-meta">${tsHtml}${authorHtml}</div>
+            <div class="modal-item-text"${textStyle ? ` style="${textStyle}"` : ''}>${escHtml(r.text)}</div>
           </div>`;
         }).join('');
 
