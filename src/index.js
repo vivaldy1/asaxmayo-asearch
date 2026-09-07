@@ -149,17 +149,23 @@ async function handleAction(db, action, params) {
     // 全テーブルのレコード件数を一括取得
     // -----------------------------------------------------------------------
     case "count_all": {
-      const [videoRes, commentRes, chatRes, subtitleRes] = await Promise.all([
+      // comments / live_chats / subtitles を直接 COUNT(*) すると毎回フルスキャンになるため、
+      // videos 側に集計済みのカウンタ列を SUM するだけで同じ値を得る。
+      const [videoRes, sumRes] = await Promise.all([
         db.prepare(`SELECT COUNT(*) AS cnt FROM videos WHERE title NOT LIKE '[%]'`).all(),
-        db.prepare(`SELECT COUNT(*) AS cnt FROM comments`).all(),
-        db.prepare(`SELECT COUNT(*) AS cnt FROM live_chats`).all(),
-        db.prepare(`SELECT COUNT(*) AS cnt FROM subtitles`).all(),
+        db.prepare(
+          `SELECT SUM(comment_count) AS comments,
+                  SUM(chat_count) AS live_chats,
+                  SUM(subtitle_count) AS subtitles
+           FROM videos`
+        ).all(),
       ]);
+      const sums = sumRes.results[0] || {};
       return {
-        videos:     videoRes.results[0]?.cnt    || 0,
-        comments:   commentRes.results[0]?.cnt  || 0,
-        live_chats: chatRes.results[0]?.cnt     || 0,
-        subtitles:  subtitleRes.results[0]?.cnt || 0,
+        videos:     videoRes.results[0]?.cnt || 0,
+        comments:   sums.comments   || 0,
+        live_chats: sums.live_chats || 0,
+        subtitles:  sums.subtitles  || 0,
       };
     }
 
@@ -167,17 +173,16 @@ async function handleAction(db, action, params) {
     // 動画一覧（各テーブルのカウント付き）
     // -----------------------------------------------------------------------
     case "get_video_list": {
+      // videos.comment_count / chat_count / subtitle_count は
+      // comments / live_chats / subtitles への INSERT・DELETE 時に
+      // D1側のトリガーで自動集計されている値を参照するだけなので、
+      // comments 等の大きいテーブルを一切スキャンしない。
       const { results } = await db.prepare(
-        `SELECT v.id, v.title, v.published_at,
-                COALESCE(cc.cnt, 0) AS comment_count,
-                COALESCE(lc.cnt, 0) AS chat_count,
-                COALESCE(sc.cnt, 0) AS subtitle_count
-         FROM videos v
-         LEFT JOIN (SELECT video_id, COUNT(*) AS cnt FROM comments   GROUP BY video_id) cc ON cc.video_id = v.id
-         LEFT JOIN (SELECT video_id, COUNT(*) AS cnt FROM live_chats GROUP BY video_id) lc ON lc.video_id = v.id
-         LEFT JOIN (SELECT video_id, COUNT(*) AS cnt FROM subtitles  GROUP BY video_id) sc ON sc.video_id = v.id
-         WHERE v.title NOT LIKE '[%]'
-         ORDER BY v.published_at DESC`
+        `SELECT id, title, published_at,
+                comment_count, chat_count, subtitle_count
+         FROM videos
+         WHERE title NOT LIKE '[%]'
+         ORDER BY published_at DESC`
       ).all();
       return results;
     }
@@ -226,12 +231,12 @@ async function handleAction(db, action, params) {
     // LiveChat があるデータの最新日付を取得（「◯◯時点」表示用）
     // -----------------------------------------------------------------------
     case "get_latest_date": {
+      // live_chats を直接 JOIN/DISTINCT せず、videos.chat_count > 0 で
+      // 「LiveChatがある動画」を判定する（chat_count はトリガーで自動集計済み）。
       const { results } = await db.prepare(
-        `SELECT strftime('%Y-%m-%d', max(published_at)) AS latest_date
+        `SELECT strftime('%Y-%m-%d', MAX(published_at)) AS latest_date
          FROM videos
-         LEFT JOIN (SELECT DISTINCT video_id FROM live_chats) live_chats
-           ON videos.id = live_chats.video_id
-         WHERE live_chats.video_id IS NOT NULL`
+         WHERE chat_count > 0`
       ).all();
       return results[0] ?? { latest_date: null };
     }
